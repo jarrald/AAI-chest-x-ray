@@ -9,4 +9,10 @@ wheels/
 # Virtual environments
 .venv
 chest_xray
-.idea
+
+# JetBrains project files
+.idea/
+
+# Local personal setup notes
+windows-setup.md
+scripts/check_cuda.py
