@@ -30,118 +30,128 @@ Improve Pneumonia Classification?}
 % =====================================================================
 \begin{abstract}
 \noindent
-Chest X-rays carry burned-in orientation markers (the letters \emph{R}/\emph{L})
-and other non-anatomical text that a convolutional neural network (CNN) might
-exploit as a shortcut instead of learning genuine pathology. We ask whether
-removing these artifacts improves pneumonia classification. Following Nunamaker
-et~al.'s multi-methodological process, we built a reproducible PyTorch pipeline
-on the Kaggle \emph{Chest X-Ray Images (Pneumonia)} dataset (5{,}856 images),
-re-split 80/10/10, and trained a custom three-block CNN. We then ran a
-\emph{locked} experiment: one model trained on the original images and one on a
-copy in which bright marker artifacts were detected with OpenCV and inpainted,
-with every other factor held identical. The cleaned dataset produced essentially
-no change in held-out test performance (Youden's J $-0.0023$, AUC $-0.0001$,
-accuracy $-0.0017$). We conclude that, for this dataset and architecture,
-removing the markers neither helps nor hurts: the classifier's decisions are
-already driven by the lung fields rather than the markers.
+Chest X-rays often contain small letters and markings that are not part of the
+body, such as an \emph{R} or \emph{L} that shows which side is which. A neural
+network might use these markings as a shortcut instead of actually learning to
+recognise pneumonia. In this project we test whether removing them makes a
+pneumonia classifier better. We used the Kaggle \emph{Chest X-Ray Images
+(Pneumonia)} dataset (5{,}856 images), split it into training, validation and
+test sets (80/10/10), and trained a convolutional neural network (CNN) following
+Nunamaker et~al.'s research process. We then ran a controlled experiment: we
+trained one model on the original images and one on a cleaned copy with the
+markings removed, keeping everything else exactly the same. The cleaned dataset
+did not improve test performance: it raised specificity ($+0.019$) but lowered
+sensitivity by more ($-0.030$), giving slightly lower Youden's J ($-0.0115$),
+accuracy ($-0.0170$) and AUC ($-0.0013$) overall. We conclude that, for this
+dataset and model, removing the markings does not give a measurable benefit: the
+model's decisions are driven by the lungs rather than the markings.
 \end{abstract}
 
 % =====================================================================
 \section{Introduction}
 \label{sec:intro}
-Pneumonia is a leading cause of death worldwide, and the chest X-ray remains the
-most common first-line imaging examination for diagnosing it. Deep convolutional
-neural networks now match or exceed clinicians on several chest-X-ray tasks
-\cite{rajpurkar2017chexnet}, which makes them attractive as triage tools.
+Pneumonia is a common and serious lung infection, and the chest X-ray is one of
+the most common ways to look for it. In recent years, deep learning models have
+become very good at reading chest X-rays, in some cases matching doctors
+\cite{rajpurkar2017chexnet}. This makes them useful as a tool to help sort
+patients.
 
-A recurring danger in medical imaging, however, is \emph{shortcut learning}: a
-model reaches high accuracy by latching onto spurious correlations rather than
-the intended signal \cite{geirhos2020shortcut}. Chest radiographs are a textbook
-case. Zech et~al.\ showed that CNNs can key on hospital-specific tokens burned
-into the image and fail to generalise across institutions \cite{zech2018confound},
-and DeGrave et~al.\ found that COVID-19 X-ray classifiers frequently relied on
-laterality markers, text and image edges instead of lung pathology
-\cite{degrave2021shortcut}. Our dataset contains exactly such artifacts: most
-films carry a bright \emph{R} (or \emph{L}) orientation marker and occasional
-technician text near the border (Figure~\ref{fig:samples}).
+A known problem with these models is \emph{shortcut learning}. This is when a
+model gets good results by using the wrong information --- something that happens
+to be linked to the answer but is not the real cause \cite{geirhos2020shortcut}.
+Chest X-rays are a good example. Earlier studies found that models sometimes used
+hospital-specific text printed on the image \cite{zech2018confound}, or that
+COVID-19 X-ray models often looked at markers and image edges instead of the
+lungs \cite{degrave2021shortcut}. Our dataset has the same kind of markings: most
+images have a bright \emph{R} or \emph{L} marker, and some have extra text near
+the border (Figure~\ref{fig:samples}).
 
-This motivates a concrete, testable question: if these non-anatomical artifacts
-were removed, would a pneumonia classifier perform better? A positive answer
-would suggest the model is partly cheating; a negative answer would provide
-evidence that the markers are not driving its decisions. We investigate this with
-a controlled, reproducible two-dataset experiment.
+This leads to a clear question we can test: if we remove these markings, does the
+pneumonia classifier get better? If it does, the model was partly relying on
+them. If it does not, that is a sign the markings are not what the model uses. We
+test this with a controlled experiment.
 
 % =====================================================================
 \section{Research Question}
 \label{sec:rq}
-We phrase one overall question with two supporting sub-questions.
+We phrase one main question with two supporting sub-questions.
 
 \begin{itemize}
   \item[\textbf{Q1}] Does removing non-anatomical artifacts (e.g.\ the orientation
   marker \emph{R}) from chest X-rays improve pneumonia classification
   performance?
-  \item[\textbf{Q1.1}] How can the artifacts be detected and removed reliably and
-  time-efficiently, without damaging anatomy?
-  \item[\textbf{Q1.2}] How should the strong class imbalance between
-  \textsc{normal} and \textsc{pneumonia} images be handled so that it does not
-  confound the comparison?
+  \item[\textbf{Q1.1}] How can the markings be detected and removed reliably and
+  quickly, without damaging the lungs?
+  \item[\textbf{Q1.2}] How should the strong imbalance between \textsc{normal} and
+  \textsc{pneumonia} images be handled so it does not affect the comparison?
 \end{itemize}
 
 \noindent
-To answer Q1 we keep \emph{every} factor constant between two training runs and
-change only one thing --- whether the input images still contain the artifacts ---
-so that any difference in test performance is attributable to the cleaning alone.
+To answer Q1 we keep \emph{every} other factor the same between two training runs
+and change only one thing --- whether the images still contain the markings --- so
+that any difference in test performance must come from the cleaning alone.
 
 % =====================================================================
 \section{Methods}
 \label{sec:methods}
-We follow Nunamaker et~al.'s multi-methodological systems-development process
-\cite{nunamaker1990}, iterating between observation, systems development and
-experimentation. Every step from data import to evaluation is scripted so the
-results are transparent and reproducible; all random number generators (Python,
-NumPy and PyTorch, CPU and CUDA) are seeded with a fixed value.
+We follow Nunamaker et~al.'s multi-methodological research process
+\cite{nunamaker1990}, which moves back and forth between observing the data,
+building the system and running experiments. Every step from loading the data to
+the final evaluation is written in code so the results can be reproduced. We also
+fix the random seed everywhere (Python, NumPy and PyTorch) so the splits,
+sampling and training give the same result each time.
 
 \subsection{Data and splitting}
 \label{sec:data}
 We use the Kaggle \emph{Chest X-Ray Images (Pneumonia)} dataset
-\cite{kermany2018,kagglecxr}, comprising 5{,}856 paediatric frontal chest
-radiographs labelled \textsc{normal} or \textsc{pneumonia}. The original Kaggle
-partition has a very small validation set (16 images), so we merge all images and
-re-split them \emph{by file} into 80\,\%/10\,\%/10\,\% train/validation/test
-partitions with a fixed seed. The same split membership is reused for both the
-original and the cleaned dataset so the comparison is image-for-image identical
-(Section~\ref{sec:locked}).
+\cite{kermany2018,kagglecxr}, which contains 5{,}856 chest X-ray images of
+children, each labelled \textsc{normal} or \textsc{pneumonia}. The original
+dataset has a very small validation set (only 16 images), so we combined all the
+images and split them again into 80\,\% training, 10\,\% validation and 10\,\%
+test. We use the same split for both the original and the cleaned dataset, so the
+two are compared on exactly the same images (Section~\ref{sec:locked}).
 
 \subsection{Preprocessing}
 \label{sec:preproc}
-Images are converted to single-channel grayscale, padded to a square (to avoid
-distortion), and resized to $224\times224$ px --- the standard input size for this
-family of models \cite{he2016resnet}. Pixel values are normalised to a mean and
-standard deviation of $0.5$. During training only, we apply light augmentation
-(rotation $\pm7^{\circ}$, translation $\pm3\,\%$, zoom $\pm3\,\%$); augmentation
-is a standard regulariser that improves generalisation on limited medical data
-\cite{shorten2019augment}. Validation and test images receive no augmentation.
+Before training we prepare every image in the same way. We convert it to
+grayscale, pad it to a square so it is not stretched, and resize it to
+$224\times224$ pixels, which is a common input size for these models
+\cite{he2016resnet}. We also scale the pixel values to a fixed range. For the
+training images only, we add small random changes --- slight rotation, shifting
+and zooming. This is called \emph{data augmentation}, and it helps the model
+generalise instead of memorising the training images \cite{shorten2019augment}.
+The validation and test images are not changed in this way.
 
 \subsection{Class imbalance}
 \label{sec:imbalance}
-The dataset is imbalanced (73\,\% \textsc{pneumonia}, 27\,\% \textsc{normal}),
-which can bias a classifier toward the majority class
-\cite{he2009imbalanced,krawczyk2016imbalanced}. We address this with a
-\texttt{WeightedRandomSampler} that draws minority-class images more often, so
-each training batch is approximately class-balanced. The sampler is applied only
-to the \emph{training} loader; validation and test sets keep their natural
-distribution so reported metrics reflect realistic prevalence.
+The dataset is uneven: about 73\,\% of the images are \textsc{pneumonia} and only
+27\,\% are \textsc{normal}. If we ignore this, the model can become biased towards
+the larger class \cite{he2009imbalanced,krawczyk2016imbalanced}. To avoid this we
+use a \emph{weighted sampler} during training, which shows the smaller class
+(\textsc{normal}) more often so each training batch has a more even mix. We do
+this only for training; the validation and test sets keep their natural mix so the
+results reflect a realistic situation.
 
 \subsection{Model architecture}
 \label{sec:model}
-We use a custom three-block CNN (Figure~\ref{fig:arch}). Each block is a
-$3\times3$ convolution followed by batch normalisation \cite{ioffe2015batchnorm},
-a ReLU activation and $2\times2$ max-pooling; the channel width grows
-$1\!\to\!32\!\to\!64\!\to\!128$. The resulting $128\times28\times28$ feature map
-is flattened into a fully connected classifier with a 256-unit hidden layer,
-dropout \cite{srivastava2014dropout} and a two-way output. The design follows the
-classic convolution--pooling--dense template established for image classification
-\cite{lecun1998gradient,krizhevsky2012imagenet} ($\approx$25.8\,M parameters).
+We use a custom convolutional neural network (CNN) for the image classification
+task. CNNs are commonly used for image classification because they can learn
+visual patterns directly from image data
+\cite{lecun1998gradient,krizhevsky2012imagenet}. In this project the model
+consists of three convolutional blocks (Figure~\ref{fig:arch}). Each block
+contains a convolutional layer, batch normalization, a ReLU activation function,
+and max-pooling. Batch normalization is used to make the training more stable
+\cite{ioffe2015batchnorm}.
+
+The number of channels increases through the network from 32 to 64 and finally to
+128. This means the model starts by learning simple visual patterns, such as
+edges and contrast, and later combines these into more complex image features.
+
+After the convolutional blocks, the feature map is flattened and passed through a
+fully connected classifier. This classifier contains one hidden layer with 256
+units, dropout to reduce overfitting \cite{srivastava2014dropout}, and a final
+output layer with two classes (\textsc{normal} and \textsc{pneumonia}). In total
+the model has about 25.8 million parameters.
 
 \begin{figure}[t]
 \centering
@@ -159,69 +169,71 @@ classic convolution--pooling--dense template established for image classificatio
   \draw[arr] (c3.south)|-(fc.east);
   \draw[arr] (fc)--(out);
 \end{tikzpicture}
-\caption{Three-block CNN. Each Conv block = $3{\times}3$ convolution +
-batch norm + ReLU + $2{\times}2$ max-pool; the flattened features feed a dropout
-classifier.}
+\caption{The three-block CNN. Each Conv block is a convolution + batch norm +
+ReLU + max-pool; the flattened features go into a dropout classifier.}
 \label{fig:arch}
 \end{figure}
 
-\subsection{Artifact detection and removal}
+\subsection{Detecting and removing the markings}
 \label{sec:cleaning}
-Orientation markers and technician text are bright, small, near-white blobs that
-sit on a dark background close to the image border, away from the lung fields. We
-detect them with OpenCV \cite{bradski2000opencv} using three independent tests on
-the connected components of the brightest pixels: \emph{(i)} location --- the
-blob's centroid lies in a left, right or top edge band (the bottom is excluded,
-where the diaphragm and film strips appear); \emph{(ii)} shape --- a letter-like
-size, aspect ratio and solidity; and \emph{(iii)} isolation --- a dark ring of
-surrounding pixels, which distinguishes a marker from bright anatomy (ribs,
-clavicles) that is connected to other bright tissue. Detected regions are dilated
-and filled with Telea inpainting \cite{telea2004inpaint}, which reconstructs the
-masked area from neighbouring pixels so no hard edge is left behind. The procedure
-is scripted (\texttt{create\_cleaned\_dataset.py}) to write a second dataset with
-an identical folder structure.
+The markings we want to remove (the \emph{R}/\emph{L} markers and technician text)
+are small, bright spots near the edge of the image, away from the lungs. We detect
+them with OpenCV \cite{bradski2000opencv} using three simple checks:
+\emph{(i) location} --- the spot is near the left, right or top edge (we ignore the
+bottom, where the body and film strips appear); \emph{(ii) shape} --- it is about
+the size and shape of a letter; and \emph{(iii) surroundings} --- it sits on a dark
+background, which separates a real marker from bright body parts such as ribs.
+Once a marking is found, we fill in that area using the pixels around it (a method
+called \emph{inpainting} \cite{telea2004inpaint}) so no sharp edge is left behind.
+This is done by a script (\texttt{create\_cleaned\_dataset.py}) that saves a full
+cleaned copy of the dataset with the same folder structure.
 
-\subsection{Locked two-dataset experiment}
+\subsection{The controlled two-dataset experiment}
 \label{sec:locked}
-To answer Q1 we train two fresh models --- one on the original images, one on the
-cleaned images --- while \emph{locking} the architecture, hyperparameters, split
-membership, preprocessing, sampler logic, batch size and threshold-selection
-method. The only variable is the dataset path, so any performance difference is
-caused by artifact removal alone.
+To answer Q1 we train two separate models: one on the original images and one on
+the cleaned images. Everything else is kept exactly the same --- the model, the
+settings, which images are in each split, the preprocessing, and how we choose the
+decision threshold. The only difference is whether the images still contain the
+markings, so any difference in the results can only come from the cleaning.
 
 \subsection{Hyperparameter search}
 \label{sec:search}
-Before the locked comparison we tune the baseline with a 20-trial random search
-\cite{bergstra2012random} over learning rate (log-uniform $[10^{-5},10^{-3}]$),
-dropout ($[0.2,0.6]$), weight decay (log-uniform $[10^{-5},10^{-2}]$) and batch
-size $\{16,32,64\}$, optimising with AdamW and a \texttt{ReduceLROnPlateau}
-schedule. Trial~1 is the default configuration so the search directly answers
-``did tuning beat the default?''.
+Before the main comparison we try to improve the baseline model by testing
+different training settings. We use a \emph{random search}
+\cite{bergstra2012random}: rather than trying every possible combination, we
+randomly pick 20 settings for four parameters --- the learning rate, the dropout
+rate, the weight decay and the batch size --- train a model with each, and keep
+the setting that scores best on the validation set. The first trial uses our
+default settings, so the search also tells us whether tuning actually found
+anything better than what we started with.
 
-\subsection{Evaluation}
+\subsection{How we measure performance}
 \label{sec:eval}
-Because missing a true pneumonia case is costly, accuracy alone is inadequate; we
-report sensitivity (recall), specificity, precision, the area under the ROC curve
-(AUC), and Youden's J statistic $J=\text{sensitivity}+\text{specificity}-1$
-\cite{youden1950}. The decision threshold for each model is selected on the
-\emph{validation} set (the point that maximises $J$) and then applied once to the
-held-out test set, which is touched only for the final evaluation.
+Accuracy on its own is not enough here, because missing a real pneumonia case is
+much worse than a false alarm. So we also report \emph{sensitivity} (how many
+pneumonia cases the model catches), \emph{specificity} (how many normal cases it
+correctly leaves out), \emph{precision}, and the \emph{AUC}, which measures how
+well the model separates the two classes overall. We also use Youden's J, a single
+number that combines sensitivity and specificity ($J=\text{sensitivity}+
+\text{specificity}-1$) \cite{youden1950}. For each model we choose the decision
+threshold using the validation set, and then test it once on the held-out test
+set, which we use only for this final step.
 
 % =====================================================================
 \section{Analysis}
 \label{sec:analysis}
-\subsection{Data observation}
-The re-split data contains 4{,}684 training, 585 validation and 587 test images.
-The class imbalance is clear (Figure~\ref{fig:classdist}), confirming the need for
-the weighted sampler of Section~\ref{sec:imbalance}. Sample images
-(Figure~\ref{fig:samples}) reveal the orientation markers and confirm the visual
-difference between the classes.
+\subsection{Looking at the data}
+After re-splitting, we have 4{,}684 training images, 585 validation images and 587
+test images. The class imbalance is clear (Figure~\ref{fig:classdist}), which is
+why we use the weighted sampler from Section~\ref{sec:imbalance}. Looking at sample
+images (Figure~\ref{fig:samples}) we can see the orientation markers, as well as
+the visual difference between healthy and pneumonia lungs.
 
 \begin{figure}[t]
 \centering
 \includegraphics[width=0.86\linewidth]{figs/fig_class_dist.png}
-\caption{Overall class distribution across the merged dataset. \textsc{pneumonia}
-images outnumber \textsc{normal} images roughly $2.7{:}1$.}
+\caption{Class distribution across the merged dataset. There are roughly $2.7$
+times as many \textsc{pneumonia} images as \textsc{normal} images.}
 \label{fig:classdist}
 \end{figure}
 
@@ -229,36 +241,37 @@ images outnumber \textsc{normal} images roughly $2.7{:}1$.}
 \centering
 \includegraphics[width=\linewidth]{figs/fig_samples.png}
 \caption{Sample training images (top: \textsc{normal}, bottom:
-\textsc{pneumonia}). Bright orientation markers are visible near the borders.}
+\textsc{pneumonia}). Bright orientation markers can be seen near the borders.}
 \label{fig:samples}
 \end{figure}
 
-\subsection{Artifact removal}
-Applying the detector of Section~\ref{sec:cleaning} localises the bright border
-markers and inpaints them cleanly while leaving the lung fields untouched
-(Figure~\ref{fig:cleaning}). Visual inspection across many images confirms that
-the three-test rule rarely fires on anatomy, satisfying sub-question Q1.1.
+\subsection{Removing the markings}
+Using the method from Section~\ref{sec:cleaning}, the bright markings near the
+edges are found and filled in cleanly, while the lungs are left untouched
+(Figure~\ref{fig:cleaning}). Checking many images by eye, the three checks almost
+never trigger on real body parts, which answers sub-question Q1.1.
 
 \begin{figure}[t]
 \centering
 \includegraphics[width=\linewidth]{figs/fig_artifact_removal.png}
-\caption{Artifact removal. Left: original. Middle: detected marker region (red).
-Right: image after Telea inpainting. The \emph{R} markers are removed without
-disturbing the lungs.}
+\caption{Removing the markings. Left: original. Middle: the detected marker region
+(red). Right: the image after inpainting. The \emph{R} markers are gone, and the
+lungs are unchanged.}
 \label{fig:cleaning}
 \end{figure}
 
 \subsection{Hyperparameter search}
-The random search (Section~\ref{sec:search}) explored 20 configurations. The best
-trial improved validation Youden's J over the default by $+0.021$
-(Table~\ref{tab:search}), confirming the default configuration was already near a
-good operating point; the tuned and default models are therefore both reasonable
-baselines for the locked comparison.
+The random search (Section~\ref{sec:search}) tested 20 different settings. The
+best one scored only slightly higher than our default settings on the validation
+set --- an improvement of $+0.021$ in Youden's J (Table~\ref{tab:search}). This
+tells us the default settings were already close to the best the search could
+find, so both the default and the tuned model are sensible starting points for
+the main comparison.
 
 \begin{table}[t]
 \centering
-\caption{Top random-search trials, ranked by validation Youden's J (the default
-configuration is included for reference).}
+\caption{The best random-search trials, ranked by validation Youden's J. The
+default settings are included for comparison.}
 \label{tab:search}
 \small
 \begin{tabular}{lccccc}
@@ -274,44 +287,45 @@ default  & 1.0e\textnormal{-}4 & 0.40 & 0.0 & 0.8852 & 0.9857\\
 \end{table}
 
 \subsection{Original vs.\ cleaned}
-We then ran the locked experiment of Section~\ref{sec:locked}. Both models were
-trained from scratch under identical settings and evaluated on the same held-out
-test set with validation-selected thresholds. The test confusion matrices
-(Figure~\ref{fig:confusion}) and the metric comparison
-(Figure~\ref{fig:comparison}, Table~\ref{tab:results}) are reported in
-Section~\ref{sec:findings}.
+We then ran the controlled experiment from Section~\ref{sec:locked}. Both models
+were trained in exactly the same way and tested on the same images. The results
+--- the confusion matrices (Figure~\ref{fig:confusion}) and the comparison of
+metrics (Figure~\ref{fig:comparison}, Table~\ref{tab:results}) --- are presented
+in Section~\ref{sec:findings}.
 
 % =====================================================================
 \section{Findings}
 \label{sec:findings}
-On the held-out test set the original-data model achieved a Youden's J of
-$0.8226$ (sensitivity $0.8855$, specificity $0.9371$, accuracy $0.8995$, AUC
-$0.9734$). The model trained on the cleaned data achieved a Youden's J of
-$0.8203$ (sensitivity $0.8832$, specificity $0.9371$, accuracy $0.8978$, AUC
-$0.9733$). The differences (cleaned minus original) are $-0.0023$ in Youden's J,
-$-0.0023$ in sensitivity, $0.0000$ in specificity, $-0.0017$ in accuracy and
-$-0.0001$ in AUC (Table~\ref{tab:results}).
+On the test set, the model trained on the original images reached a Youden's J of
+$0.8992$ (sensitivity $0.9369$, specificity $0.9623$, accuracy $0.9438$, AUC
+$0.9891$). The model trained on the cleaned images reached a Youden's J of
+$0.8877$ (sensitivity $0.9065$, specificity $0.9811$, accuracy $0.9267$, AUC
+$0.9878$). The differences (cleaned minus original) are: $-0.0115$ in Youden's J,
+$-0.0304$ in sensitivity, $+0.0189$ in specificity, $-0.0170$ in accuracy and
+$-0.0013$ in AUC (Table~\ref{tab:results}).
 
-The confusion matrices (Figure~\ref{fig:confusion}) differ by a single
-case: the cleaned model classifies one additional \textsc{pneumonia} image as
-\textsc{normal} (a false negative). All other cells are identical. The ROC-level
-ranking, summarised by AUC, is unchanged to three decimal places.
+The two changes point in opposite directions. The cleaned model has fewer false
+positives ($6\!\rightarrow\!3$, so higher specificity), but more false negatives
+($27\!\rightarrow\!40$, so lower sensitivity), as shown in the confusion matrices
+(Figure~\ref{fig:confusion}). The drop in sensitivity is the larger of the two,
+which is why the combined measures (Youden's J, accuracy and AUC) all end up
+slightly lower for the cleaned dataset.
 
 \begin{table}[t]
 \centering
-\caption{Held-out test performance for the locked two-dataset experiment.
-$\Delta$ is cleaned minus original.}
+\caption{Test performance for the two-dataset experiment. $\Delta$ is cleaned
+minus original.}
 \label{tab:results}
 \small
 \begin{tabular}{lccc}
 \toprule
 Metric & Original & Cleaned & $\Delta$\\
 \midrule
-Youden's J  & 0.8226 & 0.8203 & $-0.0023$\\
-Sensitivity & 0.8855 & 0.8832 & $-0.0023$\\
-Specificity & 0.9371 & 0.9371 & $\phantom{-}0.0000$\\
-Accuracy    & 0.8995 & 0.8978 & $-0.0017$\\
-AUC         & 0.9734 & 0.9733 & $-0.0001$\\
+Youden's J  & 0.8992 & 0.8877 & $-0.0115$\\
+Sensitivity & 0.9369 & 0.9065 & $-0.0304$\\
+Specificity & 0.9623 & 0.9811 & $\phantom{-}0.0189$\\
+Accuracy    & 0.9438 & 0.9267 & $-0.0170$\\
+AUC         & 0.9891 & 0.9878 & $-0.0013$\\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -319,49 +333,52 @@ AUC         & 0.9734 & 0.9733 & $-0.0001$\\
 \begin{figure}[t]
 \centering
 \includegraphics[width=\linewidth]{figs/fig_confusion.png}
-\caption{Test-set confusion matrices for the model trained on the original
-images (left) and on the cleaned images (right).}
+\caption{Test-set confusion matrices for the model trained on the original images
+(left) and on the cleaned images (right).}
 \label{fig:confusion}
 \end{figure}
 
 \begin{figure}[t]
 \centering
 \includegraphics[width=\linewidth]{figs/fig_comparison.png}
-\caption{Test metrics for the original and cleaned datasets. The bars are
-visually indistinguishable across all five metrics.}
+\caption{Test metrics for the original and cleaned datasets. The two perform
+similarly overall; the cleaned model trades higher specificity for lower
+sensitivity.}
 \label{fig:comparison}
 \end{figure}
 
 % =====================================================================
 \section{Conclusion}
 \label{sec:conclusion}
-Returning to \textbf{Q1} (Section~\ref{sec:rq}): for this dataset and
-architecture, removing non-anatomical artifacts did \emph{not} improve pneumonia
-classification. Every test metric moved by less than $0.25$ percentage points and
-all changes were slightly negative (Table~\ref{tab:results}, Section
-\ref{sec:findings}) --- well within the run-to-run noise we would expect from a
-single split. We therefore find no evidence that the baseline model was relying on
-the orientation markers; its decisions appear to be driven by the lung fields,
-not the burned-in text. In the language of Section~\ref{sec:intro}, the feared
-shortcut \cite{geirhos2020shortcut,degrave2021shortcut} does not materially affect
-performance here, most likely because the weighted sampler, augmentation and the
-markers' position outside the lungs already limit their influence.
+Coming back to \textbf{Q1} (Section~\ref{sec:rq}): for this dataset and this
+model, removing the markings did \emph{not} improve pneumonia classification.
+Cleaning produced a trade-off rather than a clear gain. It made the model a little
+more cautious --- fewer normal images were wrongly flagged as pneumonia (higher
+specificity) --- but it also caused more real pneumonia cases to be missed (lower
+sensitivity). Because missing a real case is the more serious mistake here, this
+trade-off is unfavourable, and the combined measures (Youden's J, accuracy and
+AUC) all came out slightly lower for the cleaned dataset
+(Table~\ref{tab:results}, Section~\ref{sec:findings}). So we found no sign that
+removing the markers helps; the model's decisions seem to be driven by the lungs,
+not the printed text. In other words, the shortcut we were worried about
+\cite{geirhos2020shortcut,degrave2021shortcut} does not appear to be helping the
+model here, probably because the weighted sampler, the augmentation, and the fact
+that the markers sit outside the lungs already limit their effect.
 
-On the supporting questions, the OpenCV-plus-inpainting detector (Q1.1) removed
-markers reliably and cheaply without harming anatomy
+For the supporting questions: the OpenCV-and-inpainting method (Q1.1) removed the
+markings reliably and cheaply without harming the lungs
 (Figure~\ref{fig:cleaning}), and the weighted sampler (Q1.2) kept the comparison
-fair by neutralising the class imbalance.
+fair by handling the class imbalance.
 
-These conclusions carry clear limitations. We tested a single custom CNN on a
-single re-split of one paediatric dataset, and our cleaning targets only bright
-\emph{border} markers rather than performing full lung-field segmentation, so
-residual non-anatomical content may remain. A negative result on one split is
-also not proof of no effect. Future work should (i) repeat the locked experiment
-across several seeds and report confidence intervals, (ii) replace marker removal
-with a pretrained U-Net lung segmentation so the model sees only lung tissue, and
-(iii) use Grad-CAM saliency maps to verify \emph{directly} where the network
-looks. Such explainability evidence would complement the behavioural result
-reported here.
+This study has some limitations. We tested only one CNN, on one split of one
+dataset of children's X-rays, and our cleaning only removes bright markings near
+the edges rather than cutting out the lungs completely, so some non-lung content
+may remain. A negative result on one split is also not full proof that there is no
+effect. Future work could (i) repeat the experiment with several random splits and
+report a range of results, (ii) use a lung-segmentation model (such as U-Net) so
+the model only sees the lung area, and (iii) use Grad-CAM heatmaps to show
+directly where the model is looking. That would add visual evidence to support the
+result we found here.
 
 % =====================================================================
 \begin{thebibliography}{99}
