@@ -30,7 +30,7 @@ In Run 2, we will detect and remove non-anatomical artifacts using:
 
 ## How to use this project
 The code is organized in Jupyter Notebooks with the `#%%` format. 
-- `no_letters.ipynb`: Contains the workflow for Run 1.
+- `no_letters_nvidia.ipynb`: Contains the workflow for both runs.
 - Each notebook includes theoretical markdown explanations between code cells.
 
 ## Methodology Notes
