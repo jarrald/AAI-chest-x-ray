@@ -10,3 +10,4 @@ wheels/
 .venv
 chest_xray
 .idea
+chest_xray_cleaned/*
